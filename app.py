@@ -130,6 +130,9 @@ def obtener_datos_financieros(ticker):
         current_liabilities = bs.loc["Total Current Liabilities"].iloc[0] if "Total Current Liabilities" in bs.index else None
         cash_flow_ratio = operating_cash_flow / current_liabilities if operating_cash_flow and current_liabilities else None
         
+        # Agregar la métrica de Creación de Valor (WACC vs ROIC)
+        creacion_valor = "Creando valor" if roic > wacc else "No creando valor"
+
         return {
             "Ticker": ticker,
             "Nombre": name,
@@ -163,6 +166,7 @@ def obtener_datos_financieros(ticker):
             "Cash Flow Ratio": cash_flow_ratio,
             "Operating Cash Flow": operating_cash_flow,
             "Current Liabilities": current_liabilities,
+            "Creación de Valor (WACC vs ROIC)": creacion_valor  # Nueva columna
         }
     except Exception as e:
         return {"Ticker": ticker, "Error": str(e)}
@@ -240,7 +244,7 @@ def main():
             
             columnas_mostrar = [
                 "Ticker", "Nombre", "Sector", "Precio", "P/E", "P/B", "P/FCF", 
-                "Dividend Yield %", "ROE", "Debt/Eq", "Profit Margin", "WACC", "ROIC"
+                "Dividend Yield %", "ROE", "Debt/Eq", "Profit Margin", "WACC", "ROIC", "Creación de Valor (WACC vs ROIC)"
             ]
             
             st.dataframe(
