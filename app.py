@@ -76,6 +76,10 @@ def obtener_datos_financieros(ticker):
         fin = stock.financials
         cf = stock.cashflow
 
+        # Validación de que los datos están disponibles
+        if "error" in info or not info.get("currentPrice"):
+            return {"Ticker": ticker, "Error": "Datos no disponibles para este ticker"}
+        
         # Datos básicos
         price = info.get("currentPrice")
         name = info.get("longName", ticker)
@@ -117,9 +121,8 @@ def obtener_datos_financieros(ticker):
         wacc, total_debt = calcular_wacc(info, bs)
         capital_invertido = total_debt + equity if total_debt and equity else None
         roic = ebit * (1 - Tc) / capital_invertido if ebit and capital_invertido else None
-        eva = (roic - wacc) * capital_invertido if roic and wacc and capital_invertido else None
         
-        # Crecimientos
+        # Crecimiento
         revenue_growth = calcular_crecimiento_historico(fin, "Total Revenue")
         eps_growth = calcular_crecimiento_historico(fin, "Net Income")
         fcf_growth = calcular_crecimiento_historico(cf, "Free Cash Flow") or calcular_crecimiento_historico(cf, "Operating Cash Flow")
@@ -130,8 +133,11 @@ def obtener_datos_financieros(ticker):
         current_liabilities = bs.loc["Total Current Liabilities"].iloc[0] if "Total Current Liabilities" in bs.index else None
         cash_flow_ratio = operating_cash_flow / current_liabilities if operating_cash_flow and current_liabilities else None
         
-        # Agregar la métrica de Creación de Valor (WACC vs ROIC)
-        creacion_valor = "Creando valor" if roic > wacc else "No creando valor"
+        # Calcular la diferencia entre WACC y ROIC
+        if wacc and roic:
+            creacion_valor = roic - wacc  # Diferencia entre ROIC y WACC
+        else:
+            creacion_valor = None
 
         return {
             "Ticker": ticker,
@@ -156,7 +162,6 @@ def obtener_datos_financieros(ticker):
             "Profit Margin": profit_margin,
             "WACC": wacc,
             "ROIC": roic,
-            "EVA": eva,
             "Deuda Total": total_debt,
             "Patrimonio Neto": equity,
             "Revenue Growth": revenue_growth,
@@ -166,12 +171,11 @@ def obtener_datos_financieros(ticker):
             "Cash Flow Ratio": cash_flow_ratio,
             "Operating Cash Flow": operating_cash_flow,
             "Current Liabilities": current_liabilities,
-            "Creación de Valor (WACC vs ROIC)": creacion_valor  # Nueva columna
+            "Creación de Valor (WACC vs ROIC)": creacion_valor  # Nueva columna con la diferencia
         }
     except Exception as e:
         return {"Ticker": ticker, "Error": str(e)}
 
-# Interfaz de usuario
 def main():
     st.title("📊 Dashboard de Análisis Financiero Avanzado")
     
@@ -237,7 +241,7 @@ def main():
             st.header("📋 Resumen General")
             
             # Formatear columnas porcentuales
-            porcentajes = ["Dividend Yield %", "ROA", "ROE", "Oper Margin", "Profit Margin", "WACC", "ROIC", "EVA"]
+            porcentajes = ["Dividend Yield %", "ROA", "ROE", "Oper Margin", "Profit Margin", "WACC", "ROIC"]
             for col in porcentajes:
                 if col in df.columns:
                     df[col] = df[col].apply(lambda x: f"{x:.2%}" if pd.notnull(x) else "N/D")
@@ -252,7 +256,7 @@ def main():
                 use_container_width=True,
                 height=400
             )
-            
+
             # Sección 2: Análisis de Valoración
             st.header("💰 Análisis de Valoración")
             col1, col2 = st.columns(2)
