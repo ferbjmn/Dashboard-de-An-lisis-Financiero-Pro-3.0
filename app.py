@@ -19,55 +19,62 @@ Rf = 0.0435  # Tasa libre de riesgo
 Rm = 0.085   # Retorno esperado del mercado
 Tc = 0.21    # Tasa impositiva corporativa
 
-# Funciones de cálculo
-def calcular_wacc(info, balance_sheet):
+# Función para calcular WACC y ROIC
+def calcular_wacc_y_roic(ticker):
+    """
+    Calcula el WACC y el ROIC de una empresa usando únicamente datos de yfinance,
+    e incluye una evaluación de si la empresa está creando valor (Relación ROIC-WACC).
+    """
     try:
-        beta = info.get("beta", 1.0)
-        price = info.get("currentPrice")
-        shares = info.get("sharesOutstanding")
-        market_cap = price * shares if price and shares else None
+        empresa = yf.Ticker(ticker)
         
-        # Manejo de deuda
-        lt_debt = balance_sheet.loc["Long Term Debt"].iloc[0] if "Long Term Debt" in balance_sheet.index else 0
-        st_debt = balance_sheet.loc["Short Term Debt"].iloc[0] if "Short Term Debt" in balance_sheet.index else 0
-        total_debt = lt_debt + st_debt
+        # Pausa para evitar bloqueos de Yahoo Finance
+        time.sleep(1)  # Esperamos 1 segundo entre las solicitudes
         
-        Re = Rf + beta * (Rm - Rf)  # Costo de capital
-        Rd = 0.055 if total_debt > 0 else 0  # Costo de deuda
+        # Información básica
+        market_cap = empresa.info.get('marketCap', 0)  # Capitalización de mercado (valor de mercado del patrimonio)
+        beta = empresa.info.get('beta', 1)  # Beta de la empresa
+        rf = 0.02  # Tasa libre de riesgo (asumida como 2%)
+        equity_risk_premium = 0.05  # Prima de riesgo del mercado (asumida como 5%)
+        ke = rf + beta * equity_risk_premium  # Costo del capital accionario (CAPM)
         
-        E = market_cap  # Valor de mercado del equity
-        D = total_debt  # Valor de mercado de la deuda
+        balance_general = empresa.balance_sheet
+        deuda_total = balance_general.loc['Total Debt'].iloc[0] if 'Total Debt' in balance_general.index else 0
+        efectivo = balance_general.loc['Cash And Cash Equivalents'].iloc[0] if 'Cash And Cash Equivalents' in balance_general.index else 0
+        patrimonio = balance_general.loc['Common Stock Equity'].iloc[0] if 'Common Stock Equity' in balance_general.index else 0
+        
+        estado_resultados = empresa.financials
+        gastos_intereses = estado_resultados.loc['Interest Expense'].iloc[0] if 'Interest Expense' in estado_resultados.index else 0
+        ebt = estado_resultados.loc['Ebt'].iloc[0] if 'Ebt' in estado_resultados.index else 0
+        impuestos = estado_resultados.loc['Income Tax Expense'].iloc[0] if 'Income Tax Expense' in estado_resultados.index else 0
+        ebit = estado_resultados.loc['EBIT'].iloc[0] if 'EBIT' in estado_resultados.index else 0
 
-        if None in [Re, E, D] or E + D == 0:
-            return None, total_debt
+        # Calcular Kd (costo de la deuda)
+        kd = gastos_intereses / deuda_total if deuda_total != 0 else 0
 
-        wacc = (E / (E + D)) * Re + (D / (E + D)) * Rd * (1 - Tc)
-        return wacc, total_debt
+        # Calcular tasa de impuestos efectiva
+        tasa_impuestos = impuestos / ebt if ebt != 0 else 0.21  # Asume 21% si no hay datos
+        
+        # Calcular WACC
+        total_capital = market_cap + deuda_total
+        wacc = ((market_cap / total_capital) * ke) + ((deuda_total / total_capital) * kd * (1 - tasa_impuestos))
+        
+        # Calcular ROIC
+        nopat = ebit * (1 - tasa_impuestos)  # NOPAT
+        capital_invertido = patrimonio + (deuda_total - efectivo)  # Capital Invertido
+        roic = nopat / capital_invertido if capital_invertido != 0 else 0
+        
+        # Calcular Relación ROIC-WACC
+        diferencia_roic_wacc = roic - wacc
+        creando_valor = roic > wacc  # Determina si está creando valor
+        
+        return wacc, roic, diferencia_roic_wacc, creando_valor
+    
     except Exception as e:
-        st.error(f"Error calculando WACC: {str(e)}")
-        return None, None
+        st.error(f"Error calculando WACC y ROIC para {ticker.upper()}: {e}")
+        return None, None, None, False
 
-def calcular_crecimiento_historico(financials, metric):
-    try:
-        if metric not in financials.index:
-            return None
-            
-        datos = financials.loc[metric].dropna().iloc[:4]  # Últimos 4 periodos
-        if len(datos) < 2:
-            return None
-            
-        primer_valor = datos.iloc[-1]
-        ultimo_valor = datos.iloc[0]
-        años = len(datos) - 1
-        
-        if primer_valor == 0:
-            return None
-            
-        cagr = (ultimo_valor / primer_valor) ** (1 / años) - 1
-        return cagr
-    except:
-        return None
-
+# Función para obtener los datos financieros
 def obtener_datos_financieros(ticker):
     try:
         stock = yf.Ticker(ticker)
@@ -116,38 +123,8 @@ def obtener_datos_financieros(ticker):
         pfcf = price / (fcf / shares) if fcf and shares else None
         
         # Cálculos avanzados
-        ebit = fin.loc["EBIT"].iloc[0] if "EBIT" in fin.index else None
-        equity = bs.loc["Total Stockholder Equity"].iloc[0] if "Total Stockholder Equity" in bs.index else None
-        total_debt = bs.loc["Total Debt"].iloc[0] if "Total Debt" in bs.index else 0
-        cash = bs.loc["Cash And Cash Equivalents"].iloc[0] if "Cash And Cash Equivalents" in bs.index else 0
-        wacc, total_debt = calcular_wacc(info, bs)
+        wacc, roic, diferencia_roic_wacc, creando_valor = calcular_wacc_y_roic(ticker)
         
-        # Calculando Capital Invertido
-        capital_invertido = equity + (total_debt - cash) if equity and total_debt is not None else None
-        
-        # Calcular NOPAT (Net Operating Profit After Taxes)
-        nopat = ebit * (1 - Tc) if ebit else None
-        
-        # Calcular ROIC
-        roic = nopat / capital_invertido if nopat and capital_invertido else None
-        
-        # Crecimiento
-        revenue_growth = calcular_crecimiento_historico(fin, "Total Revenue")
-        eps_growth = calcular_crecimiento_historico(fin, "Net Income")
-        fcf_growth = calcular_crecimiento_historico(cf, "Free Cash Flow") or calcular_crecimiento_historico(cf, "Operating Cash Flow")
-        
-        # Liquidez avanzada
-        cash_ratio = info.get("cashRatio")
-        operating_cash_flow = cf.loc["Operating Cash Flow"].iloc[0] if "Operating Cash Flow" in cf.index else None
-        current_liabilities = bs.loc["Total Current Liabilities"].iloc[0] if "Total Current Liabilities" in bs.index else None
-        cash_flow_ratio = operating_cash_flow / current_liabilities if operating_cash_flow and current_liabilities else None
-        
-        # Calcular la diferencia entre WACC y ROIC
-        if wacc and roic:
-            creacion_valor = roic - wacc  # Diferencia entre ROIC y WACC
-        else:
-            creacion_valor = None
-
         return {
             "Ticker": ticker,
             "Nombre": name,
@@ -171,20 +148,12 @@ def obtener_datos_financieros(ticker):
             "Profit Margin": profit_margin,
             "WACC": wacc,
             "ROIC": roic,
-            "Deuda Total": total_debt,
-            "Patrimonio Neto": equity,
-            "Revenue Growth": revenue_growth,
-            "EPS Growth": eps_growth,
-            "FCF Growth": fcf_growth,
-            "Cash Ratio": cash_ratio,
-            "Cash Flow Ratio": cash_flow_ratio,
-            "Operating Cash Flow": operating_cash_flow,
-            "Current Liabilities": current_liabilities,
-            "Creación de Valor (WACC vs ROIC)": creacion_valor  # Nueva columna con la diferencia
+            "Creación de Valor (WACC vs ROIC)": diferencia_roic_wacc,  # Mostrar la diferencia
         }
     except Exception as e:
         return {"Ticker": ticker, "Error": str(e)}
 
+# Interfaz de usuario
 def main():
     st.title("📊 Dashboard de Análisis Financiero Avanzado")
     
@@ -250,7 +219,7 @@ def main():
             st.header("📋 Resumen General")
             
             # Formatear columnas porcentuales
-            porcentajes = ["Dividend Yield %", "ROA", "ROE", "Oper Margin", "Profit Margin", "WACC", "ROIC"]
+            porcentajes = ["Dividend Yield %", "ROA", "ROE", "Oper Margin", "Profit Margin", "WACC", "ROIC", "Creación de Valor (WACC vs ROIC)"]
             for col in porcentajes:
                 if col in df.columns:
                     df[col] = df[col].apply(lambda x: f"{x:.2%}" if pd.notnull(x) else "N/D")
