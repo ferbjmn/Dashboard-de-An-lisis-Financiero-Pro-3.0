@@ -79,7 +79,7 @@ def obtener_datos_financieros(ticker):
         # Validación de que los datos están disponibles
         if "error" in info or not info.get("currentPrice"):
             return {"Ticker": ticker, "Error": "Datos no disponibles para este ticker"}
-        
+
         # Datos básicos
         price = info.get("currentPrice")
         name = info.get("longName", ticker)
@@ -118,9 +118,18 @@ def obtener_datos_financieros(ticker):
         # Cálculos avanzados
         ebit = fin.loc["EBIT"].iloc[0] if "EBIT" in fin.index else None
         equity = bs.loc["Total Stockholder Equity"].iloc[0] if "Total Stockholder Equity" in bs.index else None
+        total_debt = bs.loc["Total Debt"].iloc[0] if "Total Debt" in bs.index else 0
+        cash = bs.loc["Cash And Cash Equivalents"].iloc[0] if "Cash And Cash Equivalents" in bs.index else 0
         wacc, total_debt = calcular_wacc(info, bs)
-        capital_invertido = total_debt + equity if total_debt and equity else None
-        roic = ebit * (1 - Tc) / capital_invertido if ebit and capital_invertido else None
+        
+        # Calculando Capital Invertido
+        capital_invertido = equity + (total_debt - cash) if equity and total_debt is not None else None
+        
+        # Calcular NOPAT (Net Operating Profit After Taxes)
+        nopat = ebit * (1 - Tc) if ebit else None
+        
+        # Calcular ROIC
+        roic = nopat / capital_invertido if nopat and capital_invertido else None
         
         # Crecimiento
         revenue_growth = calcular_crecimiento_historico(fin, "Total Revenue")
